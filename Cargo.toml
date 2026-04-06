@@ -1,0 +1,10 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iroh = "0.97.0"
+iroh-blobs = "0.99.0"
+tokio = "1.51.0"
+willow25 = "0.4.0"
