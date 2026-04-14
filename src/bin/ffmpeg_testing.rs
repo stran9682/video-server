@@ -7,7 +7,7 @@ fn main () {
         println!("FFmpeg is already installed! 🎉");
     }
 
-    let args_string = "-acodec copy -f segment -segment_time 30 -vcodec copy -reset_timestamps 1 -map 0 output_time_%d.mp4";
+    let args_string = "-acodec copy -f segment -segment_time 2 -vcodec copy -reset_timestamps 1 -map 0 temp/output_time_%d.mp4";
 
     let mut command = FfmpegCommand::new()
         .input("input.mp4")
