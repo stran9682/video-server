@@ -10,4 +10,5 @@ iroh = "0.97.0"
 iroh-blobs = { version = "0.99.0", features = ["fs-store"] }
 rand = "0.8.0"
 tokio = {version = "1", features = ["full"]}
+tokio-util = "0.7.18"
 willow25 = "0.4.0"
