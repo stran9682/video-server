@@ -1,6 +1,9 @@
-use ffmpeg_sidecar::{command::{FfmpegCommand, ffmpeg_is_installed}, event::{FfmpegEvent, LogLevel}};
+use ffmpeg_sidecar::{
+    command::{FfmpegCommand, ffmpeg_is_installed},
+    event::{FfmpegEvent, LogLevel},
+};
 
-fn main () {
+fn main() {
     ffmpeg_sidecar::download::auto_download().unwrap();
 
     if ffmpeg_is_installed() {
@@ -20,5 +23,4 @@ fn main () {
         FfmpegEvent::Progress(p) => println!("Progress: {} / 00:00:15", p.time),
         _ => {}
     });
-
 }

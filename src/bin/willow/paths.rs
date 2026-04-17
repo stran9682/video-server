@@ -22,7 +22,8 @@ fn main() {
 
     if ideas_path.is_prefix_of(&long_path) {
         println!(
-            "Ideas_path ({:?}) is a prefix of long path ({:?})", ideas_path, long_path
+            "Ideas_path ({:?}) is a prefix of long path ({:?})",
+            ideas_path, long_path
         );
     }
 

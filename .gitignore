@@ -1,3 +1,7 @@
 /target
 .DS_Store
 blobs.db
+/data
+/temp/
+input.mp4
+temp.mp4

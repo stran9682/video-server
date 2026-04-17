@@ -1,7 +1,7 @@
-use willow25::prelude::*;
 use rand::rngs::OsRng;
+use willow25::prelude::*;
 
-fn main () {
+fn main() {
     let mut csprng = OsRng;
 
     let (alfie_id, alfie_secret) = randomly_generate_subspace(&mut csprng);
@@ -10,7 +10,8 @@ fn main () {
 
     // Create a new communal capability.
     // To use it, we'll need Alfie's secret.
-    let communal_cap = WriteCapability::new_communal(communal_namespace_id.clone(), alfie_id.clone());
+    let communal_cap =
+        WriteCapability::new_communal(communal_namespace_id.clone(), alfie_id.clone());
 
     println!("A communal capability: {:#?}", communal_cap);
 
@@ -20,7 +21,8 @@ fn main () {
         .path(path!("/ideas"))
         .timestamp(12345)
         .payload(b"chocolate with mustard")
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     // Authorise the entry using the communal
     // capability and Alfie's secret.
@@ -36,12 +38,13 @@ fn main () {
 
     let (betty_id, betty_secret) = randomly_generate_subspace(&mut csprng);
 
-    owned_cap.delegate(&alfie_secret, Area::new_subspace_area(betty_id.clone()), betty_id.clone());
-
-    println!(
-        "A delegated owned capability: {:#?}",
-        owned_cap,
+    owned_cap.delegate(
+        &alfie_secret,
+        Area::new_subspace_area(betty_id.clone()),
+        betty_id.clone(),
     );
+
+    println!("A delegated owned capability: {:#?}", owned_cap,);
 
     let entry_owned = Entry::builder()
         .namespace_id(owned_namespace_id)
@@ -49,7 +52,8 @@ fn main () {
         .path(path!("/blog"))
         .timestamp(45689)
         .payload(b"woried about alfie")
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     // Authorise the entry using the owned
     // capability and Betty's secret.
@@ -57,5 +61,4 @@ fn main () {
 
     assert!(owned_authed.is_ok());
     println!("Entry for owned namespace was authorised!")
-
 }
