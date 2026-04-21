@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::SystemTime};
 
 use anyhow::Ok;
 use ffmpeg_sidecar::{
@@ -6,10 +6,14 @@ use ffmpeg_sidecar::{
     event::{FfmpegEvent, LogLevel},
 };
 use iroh::{
-    Endpoint, PublicKey, endpoint::presets, protocol::{AcceptError, ProtocolHandler, Router}
+    Endpoint,
+    endpoint::presets,
+    protocol::{AcceptError, ProtocolHandler, Router},
 };
-use iroh_blobs::{Hash, HashAndFormat, api::{Store, blobs::AddBytesOptions}, hashseq::HashSeq, store::fs::FsStore};
-use tokio::{fs::{self, File}, io::AsyncReadExt};
+use iroh_blobs::{
+    Hash, api::{Store, blobs::AddBytesOptions}, hashseq::HashSeq, store::fs::FsStore
+};
+use tokio::fs::{self, File};
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
 
@@ -36,8 +40,6 @@ async fn main() -> anyhow::Result<()> {
         .accept(ALPN, proto)
         .accept("query", query)
         .spawn();
-
-
 
     let node_id = node.endpoint().id();
     println!("our endpoint id: {}", node_id);
@@ -80,13 +82,14 @@ impl ProtocolHandler for VideoUpload {
         &self,
         connection: iroh::endpoint::Connection,
     ) -> Result<(), iroh::protocol::AcceptError> {
-        let (mut _send, mut recv) = connection.accept_bi().await?;
+        let (mut send, mut recv) = connection.accept_bi().await?;
 
         let mut temp_file = File::create("temp.mp4").await?;
 
         tokio::io::copy(&mut recv, &mut temp_file).await?;
 
-        let args_string = "-acodec copy -f segment -segment_time 2 -vcodec copy -reset_timestamps 1 -map 0 temp/output_%d.mp4";
+        // TODO: create a separate directory for this instance.
+        let args_string = "-acodec copy -f segment -segment_time 6 -vcodec copy -reset_timestamps 1 -map 0 temp/output_%d.mp4";
 
         let mut command = FfmpegCommand::new()
             .input("temp.mp4")
@@ -100,12 +103,25 @@ impl ProtocolHandler for VideoUpload {
             _ => {}
         });
 
+        // TODO: oops put this in order
         let mut entries = fs::read_dir("temp").await?;
 
         let mut hashes = vec![];
 
+        let mut files = Vec::new();
+
         while let Some(file) = entries.next_entry().await? {
-            let file = File::open(file.path()).await?;
+            let metadata = file.metadata().await?;
+            if metadata.is_file() {
+                let modified: SystemTime = metadata.modified()?;
+                files.push((file.path(), modified));
+            }
+        }
+
+        files.sort_by_key(|&(_, time)| time);
+
+        for file in files {
+            let file = File::open(file.0).await?;
 
             let stream = ReaderStream::new(file);
 
@@ -117,23 +133,30 @@ impl ProtocolHandler for VideoUpload {
         }
 
         let hs = hashes.iter().copied().collect::<HashSeq>();
-        let hash = self.blobs.add_bytes_with_opts(AddBytesOptions {
-            data: hs.into(),
-            format: iroh_blobs::BlobFormat::HashSeq
-        })
-        .with_named_tag("temp")
-        .await.unwrap();
+        let hash = self
+            .blobs
+            .add_bytes_with_opts(AddBytesOptions {
+                data: hs.into(),
+                format: iroh_blobs::BlobFormat::HashSeq,
+            })
+            .with_named_tag("temp")
+            .await
+            .unwrap();
 
         println!("Hash Sequence: {} ", hash.hash);
+
+        send.write_all(hash.hash.as_bytes()).await.unwrap();
+        send.finish().unwrap();
+
+        connection.closed().await;
 
         Result::Ok(())
     }
 }
 
-
 #[derive(Debug, Clone)]
 struct Query {
-    blobs: Store
+    blobs: Store,
 }
 
 impl Query {
@@ -148,7 +171,7 @@ impl ProtocolHandler for Query {
     async fn accept(
         &self,
         connection: iroh::endpoint::Connection,
-    ) -> Result<(), iroh::protocol::AcceptError>{
+    ) -> Result<(), iroh::protocol::AcceptError> {
         let (mut send, mut recv) = connection.accept_bi().await?;
         println!("Accepted connection from {}", connection.remote_id());
 

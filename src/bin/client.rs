@@ -1,31 +1,38 @@
 use std::{io, str::FromStr};
 
-use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets};
-use iroh_blobs::{api::Store, Hash};
-use tokio::{fs::File, io::AsyncWriteExt};
+use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets, protocol::AcceptError};
+use iroh_blobs::{Hash, api::Store, store::mem::MemStore};
+use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}};
 
 const ALPN: &[u8] = b"fun";
 
 async fn upload(client_endpoint: &Endpoint, server_endpoint: &EndpointId) -> anyhow::Result<()> {
-
     println!("Client Id is {}", client_endpoint.id());
 
     let conn = client_endpoint.connect(*server_endpoint, ALPN).await?;
 
-    let (mut send, mut _recv) = conn.open_bi().await?;
+    let (mut send, mut recv) = conn.open_bi().await?;
 
     let mut video = File::open("input.mp4").await?;
 
     tokio::io::copy(&mut video, &mut send).await?;
 
     send.finish()?;
+    
+    let res = recv.read_to_end(128).await.unwrap();
+    let query = String::from_utf8(res).map_err(AcceptError::from_err)?;
+    println!("Hash: {}", Hash::from_str(&query).unwrap());
 
-    conn.closed().await;
+    conn.close(0u32.into(), b"all done!");
 
     Ok(())
 }
 
-async fn query(client_endpoint: &Endpoint, server_endpoint: &EndpointId, hash: &str) -> anyhow::Result<()> {
+async fn query(
+    client_endpoint: &Endpoint,
+    server_endpoint: &EndpointId,
+    hash: &str,
+) -> anyhow::Result<()> {
     let conn = client_endpoint.connect(*server_endpoint, b"query").await?;
 
     let (mut send, mut recv) = conn.open_bi().await?;
@@ -53,7 +60,6 @@ async fn query(client_endpoint: &Endpoint, server_endpoint: &EndpointId, hash: &
 
 #[tokio::main]
 async fn main() {
-
     println!("Enter endpoint: ");
 
     let mut input = String::new();
