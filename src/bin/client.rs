@@ -19,9 +19,9 @@ async fn upload(client_endpoint: &Endpoint, server_endpoint: &EndpointId) -> any
 
     send.finish()?;
     
-    let res = recv.read_to_end(128).await.unwrap();
-    let query = String::from_utf8(res).map_err(AcceptError::from_err)?;
-    println!("Hash: {}", Hash::from_str(&query).unwrap());
+    let mut hash_bytes = [0u8; 32];
+    recv.read_exact(&mut hash_bytes).await.unwrap();
+    println!("Hash of hashsequence: {}", Hash::from_bytes(hash_bytes));
 
     conn.close(0u32.into(), b"all done!");
 
@@ -72,9 +72,9 @@ async fn main() {
 
     let client_endpoint = Endpoint::bind(presets::N0).await.unwrap();
 
-    // if let Err(e) = upload(&client_endpoint, &server_id).await {
-    //     eprintln!("Failed to send client video! {}", e)
-    // };
+    if let Err(e) = upload(&client_endpoint, &server_id).await {
+        eprintln!("Failed to send client video! {}", e)
+    };
     
     input.clear();
     println!("Query for hash?");

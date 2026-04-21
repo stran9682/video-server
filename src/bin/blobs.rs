@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::SystemTime};
+use std::{fmt::format, str::FromStr, time::SystemTime};
 
 use anyhow::Ok;
 use ffmpeg_sidecar::{
@@ -11,7 +11,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler, Router},
 };
 use iroh_blobs::{
-    Hash, api::{Store, blobs::AddBytesOptions}, hashseq::HashSeq, store::fs::FsStore
+    Hash, api::{Store, blobs::AddBytesOptions, tags::ListOptions}, hashseq::HashSeq, store::fs::FsStore
 };
 use tokio::fs::{self, File};
 use tokio_stream::StreamExt;
@@ -84,15 +84,19 @@ impl ProtocolHandler for VideoUpload {
     ) -> Result<(), iroh::protocol::AcceptError> {
         let (mut send, mut recv) = connection.accept_bi().await?;
 
-        let mut temp_file = File::create("temp.mp4").await?;
-
+        // Copy the remote file to local
+        let temp_file_name = format!("{}.mp4", connection.remote_id());
+        let mut temp_file = File::create(&temp_file_name).await?;
         tokio::io::copy(&mut recv, &mut temp_file).await?;
 
-        // TODO: create a separate directory for this instance.
-        let args_string = "-acodec copy -f segment -segment_time 6 -vcodec copy -reset_timestamps 1 -map 0 temp/output_%d.mp4";
+
+        // Split the mp4 w. ffmpeg
+        let temp_directory = connection.remote_id().to_string();
+        fs::create_dir(&temp_directory).await?;
+        let args_string = format!("-f segment -segment_time 3 -reset_timestamps 1 -map 0 {}/output_%d.mp4", connection.remote_id());
 
         let mut command = FfmpegCommand::new()
-            .input("temp.mp4")
+            .input(&temp_file_name)
             .args(args_string.split(' '))
             .spawn()
             .unwrap();
@@ -103,8 +107,9 @@ impl ProtocolHandler for VideoUpload {
             _ => {}
         });
 
-        // TODO: oops put this in order
-        let mut entries = fs::read_dir("temp").await?;
+
+        // Add each file to iroh
+        let mut entries = fs::read_dir(&temp_directory).await?;
 
         let mut hashes = vec![];
 
@@ -121,6 +126,7 @@ impl ProtocolHandler for VideoUpload {
         files.sort_by_key(|&(_, time)| time);
 
         for file in files {
+            println!("{:?}", file.0);
             let file = File::open(file.0).await?;
 
             let stream = ReaderStream::new(file);
@@ -132,6 +138,7 @@ impl ProtocolHandler for VideoUpload {
             hashes.push(res.hash);
         }
 
+        // TODO: Look into properly doing this
         let hs = hashes.iter().copied().collect::<HashSeq>();
         let hash = self
             .blobs
@@ -145,10 +152,15 @@ impl ProtocolHandler for VideoUpload {
 
         println!("Hash Sequence: {} ", hash.hash);
 
+        // return the hash of the hashsequence to client
         send.write_all(hash.hash.as_bytes()).await.unwrap();
         send.finish().unwrap();
 
         connection.closed().await;
+        
+        // clean up
+        fs::remove_dir_all(temp_directory).await?;
+        fs::remove_file(&temp_file_name).await?;
 
         Result::Ok(())
     }
