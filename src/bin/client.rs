@@ -1,8 +1,7 @@
 use std::{io, str::FromStr};
 
-use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets, protocol::AcceptError};
-use iroh_blobs::{Hash, api::Store, store::mem::MemStore};
-use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}};
+use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets};
+use tokio::fs::File;
 
 const ALPN: &[u8] = b"fun";
 
@@ -18,10 +17,9 @@ async fn upload(client_endpoint: &Endpoint, server_endpoint: &EndpointId) -> any
     tokio::io::copy(&mut video, &mut send).await?;
 
     send.finish()?;
-    
-    let mut hash_bytes = [0u8; 32];
-    recv.read_exact(&mut hash_bytes).await.unwrap();
-    println!("Hash of hashsequence: {}", Hash::from_bytes(hash_bytes));
+
+    let uuid = recv.read_to_end(256).await?;
+    println!("Hash of UUID: {}", str::from_utf8(&uuid)?);
 
     conn.close(0u32.into(), b"all done!");
 
@@ -31,27 +29,26 @@ async fn upload(client_endpoint: &Endpoint, server_endpoint: &EndpointId) -> any
 async fn query(
     client_endpoint: &Endpoint,
     server_endpoint: &EndpointId,
-    hash: &str,
+    tag: &str,
 ) -> anyhow::Result<()> {
     let conn = client_endpoint.connect(*server_endpoint, b"query").await?;
 
     let (mut send, mut recv) = conn.open_bi().await?;
 
-    send.write_all(hash.as_bytes()).await?;
+    send.write_all(tag.as_bytes()).await?;
     send.finish()?;
 
     let mut hash_bytes = [0u8; 32];
 
     println!("Connection opened");
-    
+
     loop {
         match recv.read_exact(&mut hash_bytes).await {
             Err(iroh::endpoint::ReadExactError::FinishedEarly(_)) => break,
             Err(err) => return Err(err.into()),
             Ok(_) => {}
         };
-        let hash = Hash::from_bytes(hash_bytes);
-        println!("{}", hash)
+        println!("{:?}", hash_bytes)
     }
     conn.close(0u32.into(), b"done");
 
@@ -75,9 +72,9 @@ async fn main() {
     if let Err(e) = upload(&client_endpoint, &server_id).await {
         eprintln!("Failed to send client video! {}", e)
     };
-    
+
     input.clear();
-    println!("Query for hash?");
+    println!("Query for tag?");
     io::stdin()
         .read_line(&mut input)
         .expect("Failed to read line");
@@ -85,13 +82,4 @@ async fn main() {
     if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
         eprintln!("Failed to query server! {}", e)
     };
-}
-
-async fn read_to_file(store: &Store, hash: Hash) -> anyhow::Result<()> {
-    let mut content = store.get_bytes(hash).await?;
-
-    let mut clip = File::create("clip.mp4").await?;
-    clip.write_all_buf(&mut content).await?;
-
-    Ok(())
 }

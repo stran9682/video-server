@@ -1,4 +1,4 @@
-use std::{fmt::format, str::FromStr, time::SystemTime};
+use std::time::SystemTime;
 
 use anyhow::Ok;
 use ffmpeg_sidecar::{
@@ -10,12 +10,11 @@ use iroh::{
     endpoint::presets,
     protocol::{AcceptError, ProtocolHandler, Router},
 };
-use iroh_blobs::{
-    Hash, api::{Store, blobs::AddBytesOptions, tags::ListOptions}, hashseq::HashSeq, store::fs::FsStore
-};
+use iroh_blobs::{api::Store, store::fs::FsStore};
 use tokio::fs::{self, File};
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
+use uuid::Uuid;
 
 const ALPN: &[u8] = b"fun";
 
@@ -89,11 +88,13 @@ impl ProtocolHandler for VideoUpload {
         let mut temp_file = File::create(&temp_file_name).await?;
         tokio::io::copy(&mut recv, &mut temp_file).await?;
 
-
         // Split the mp4 w. ffmpeg
         let temp_directory = connection.remote_id().to_string();
         fs::create_dir(&temp_directory).await?;
-        let args_string = format!("-f segment -segment_time 3 -reset_timestamps 1 -map 0 {}/output_%d.mp4", connection.remote_id());
+        let args_string = format!(
+            "-f segment -segment_time 1 -reset_timestamps 1 -map 0 {}/output_%d.mp4",
+            connection.remote_id()
+        );
 
         let mut command = FfmpegCommand::new()
             .input(&temp_file_name)
@@ -107,12 +108,8 @@ impl ProtocolHandler for VideoUpload {
             _ => {}
         });
 
-
-        // Add each file to iroh
+        // sort the entries by time first
         let mut entries = fs::read_dir(&temp_directory).await?;
-
-        let mut hashes = vec![];
-
         let mut files = Vec::new();
 
         while let Some(file) = entries.next_entry().await? {
@@ -125,39 +122,37 @@ impl ProtocolHandler for VideoUpload {
 
         files.sort_by_key(|&(_, time)| time);
 
+        // Add each file to iroh
+        let tag = Uuid::new_v4(); // the tag will be a UUID
+        let mut file_number = 0;
+
         for file in files {
-            println!("{:?}", file.0);
             let file = File::open(file.0).await?;
 
             let stream = ReaderStream::new(file);
 
-            let res = self.blobs.add_stream(stream).await;
+            if let Err(e) = self
+                .blobs
+                .add_stream(stream)
+                .await
+                .with_named_tag(format!("{}:{}", tag, file_number))
+                .await
+            {
+                eprintln!("Failed to add to store: {}", e)
+            }
 
-            let res = res.await.unwrap();
-
-            hashes.push(res.hash);
+            file_number += 1;
         }
 
-        // TODO: Look into properly doing this
-        let hs = hashes.iter().copied().collect::<HashSeq>();
-        let hash = self
-            .blobs
-            .add_bytes_with_opts(AddBytesOptions {
-                data: hs.into(),
-                format: iroh_blobs::BlobFormat::HashSeq,
-            })
-            .with_named_tag("temp")
-            .await
-            .unwrap();
+        // return the tag and the # of clips
+        println!("UUID tag: {}:{} ", tag, file_number);
 
-        println!("Hash Sequence: {} ", hash.hash);
-
-        // return the hash of the hashsequence to client
-        send.write_all(hash.hash.as_bytes()).await.unwrap();
+        // return the prefix tag to client
+        send.write_all(tag.to_string().as_bytes()).await.unwrap(); // It's just easier using strings. Fight me.
         send.finish().unwrap();
 
         connection.closed().await;
-        
+
         // clean up
         fs::remove_dir_all(temp_directory).await?;
         fs::remove_file(&temp_file_name).await?;
@@ -191,15 +186,25 @@ impl ProtocolHandler for Query {
 
         let query = String::from_utf8(query_bytes).map_err(AcceptError::from_err)?;
 
-        let hash = Hash::from_str(&query).map_err(AcceptError::from_err)?;
-
         println!("Querying for: {}", query);
 
-        let mut reader = self.blobs.blobs().reader(hash);
-        tokio::io::copy(&mut reader, &mut send).await.unwrap();
+        // TODO: LOOK INTO THIS:
+        // let res = self.blobs.tags().list_with_opts(ListOptions::range("h".."hello"));
 
-        // let tag = self.blobs.tags().get("temp").await.unwrap().unwrap();
-        // println!("{}", tag.hash);
+        if let Some(tag) = self
+            .blobs
+            .tags()
+            .get(&query)
+            .await
+            .map_err(AcceptError::from_err)?
+        {
+            println!("Hash associated with Tag: {}", tag.hash);
+
+            let mut reader = self.blobs.blobs().reader(tag.hash);
+            tokio::io::copy(&mut reader, &mut send).await?;
+        } else {
+            println!("No Hash associated with Tag: {}", query)
+        }
 
         send.finish()?;
         connection.closed().await;
