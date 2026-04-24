@@ -2,16 +2,16 @@ use std::{io, str::FromStr};
 
 use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets, protocol::Router};
 use iroh_blobs::{BlobsProtocol, store::mem::MemStore};
-use iroh_docs::{AuthorId, DocTicket, protocol::Docs};
+use iroh_docs::{DocTicket, protocol::Docs};
 use iroh_gossip::Gossip;
 use tokio::fs::File;
 
 const ALPN: &[u8] = b"fun";
 
 async fn upload(
-    client_endpoint: &Endpoint, 
+    client_endpoint: &Endpoint,
     server_endpoint: &EndpointId,
-    docs: Docs
+    docs: Docs,
 ) -> anyhow::Result<()> {
     println!("Client Id is {}", client_endpoint.id());
 
@@ -28,21 +28,17 @@ async fn upload(
     let bytes = recv.read_to_end(256).await?;
     let ticket_str = str::from_utf8(&bytes)?;
     println!("Received a ticket: {}", ticket_str);
-
     let ticket = DocTicket::from_str(ticket_str.trim())?;
 
-    let doc = docs.import(ticket).await?;
-    let author = docs.author_create().await?;
-    doc.set_bytes(
-        author, 
-        doc.id().to_string(), 
-        client_endpoint.id().to_string()
-    ).await?;
-
-
     let mut recv = conn.accept_uni().await?;
-    let uuid = recv.read_to_end(256).await?;
-    println!("Doc ID : # Clips: {}", str::from_utf8(&uuid)?);
+    let bytes = recv.read_to_end(256).await?;
+    let tag = String::from_utf8(bytes)?;
+    println!("Doc ID : # Clips: {}", tag);
+
+    let doc = docs.import(ticket).await?;
+    let author = docs.author_create().await?; // TODO adjust this
+    doc.set_bytes(author, tag, client_endpoint.id().to_string())
+        .await?;
 
     conn.close(0u32.into(), b"all done!");
 
@@ -103,12 +99,7 @@ async fn main() -> anyhow::Result<()> {
         .accept(iroh_docs::ALPN, docs.clone())
         .spawn();
 
-
-    if let Err(e) = upload(
-        &client_endpoint, 
-        &server_id,
-        docs
-    ).await {
+    if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
         eprintln!("Failed to send client video! {}", e)
     };
 
