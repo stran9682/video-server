@@ -6,11 +6,13 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 ffmpeg-sidecar = { version = "2.5.0", features = ["download_ffmpeg"] }
-iroh = "0.97.0"
-iroh-blobs = { version = "0.99.0", features = ["fs-store"] }
+iroh = "0.98.0"
+iroh-blobs = { version = "0.100.0", features = ["fs-store"] }
+iroh-docs = "0.98.0"
+iroh-gossip = "0.98.0"
+n0-future = "0.3.2"
 rand = "0.8.0"
 tokio = {version = "1", features = ["full"]}
 tokio-stream = "0.1.18"
 tokio-util = "0.7.18"
 uuid = "1.23.1"
-willow25 = "0.4.0"

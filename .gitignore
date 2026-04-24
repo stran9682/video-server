@@ -5,3 +5,5 @@ blobs.db
 /temp/
 input.mp4
 temp.mp4
+blobs/default-author
+blobs/docs.redb

@@ -10,11 +10,12 @@ use iroh::{
     endpoint::presets,
     protocol::{AcceptError, ProtocolHandler, Router},
 };
-use iroh_blobs::{api::Store, store::fs::FsStore};
+use iroh_blobs::{BlobsProtocol, api::Store, store::fs::FsStore};
+use iroh_docs::{api::{Doc, protocol::ShareMode}, protocol::Docs};
+use iroh_gossip::Gossip;
 use tokio::fs::{self, File};
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
-use uuid::Uuid;
 
 const ALPN: &[u8] = b"fun";
 
@@ -31,13 +32,30 @@ async fn main() -> anyhow::Result<()> {
     let server_endpoint = Endpoint::bind(presets::N0).await?;
     server_endpoint.online().await;
 
-    let proto = VideoUpload::new(&store);
-    let query = Query::new(&store);
+    // stuff for docs
+    let blobs = FsStore::load("./blobs").await?;
+    let gossip = Gossip::builder().spawn(server_endpoint.clone());
+    let docs = Docs::persistent("./blobs".into())
+        .spawn(server_endpoint.clone(), (*blobs).clone(), gossip.clone())
+        .await?;
+
+    // Our own query stuff
+    let proto = VideoUpload::new(
+        &store,
+        &docs
+    );
+    let query = Query::new(
+        &store
+    );
     proto.print().await;
 
+    // oh dear
     let node = Router::builder(server_endpoint)
         .accept(ALPN, proto)
         .accept("query", query)
+        .accept(iroh_docs::ALPN, docs.clone())
+        .accept(iroh_blobs::ALPN, BlobsProtocol::new(&blobs, None))
+        .accept(iroh_gossip::ALPN, gossip)
         .spawn();
 
     let node_id = node.endpoint().id();
@@ -52,11 +70,13 @@ async fn main() -> anyhow::Result<()> {
 #[derive(Debug, Clone)]
 struct VideoUpload {
     blobs: Store,
+    docs: Docs
 }
 
 impl VideoUpload {
-    pub fn new(blobs: &Store) -> Self {
+    pub fn new(blobs: &Store, docs: &Docs) -> Self {
         VideoUpload {
+            docs: docs.clone(),
             blobs: blobs.clone(),
         }
     }
@@ -83,17 +103,33 @@ impl ProtocolHandler for VideoUpload {
     ) -> Result<(), iroh::protocol::AcceptError> {
         let (mut send, mut recv) = connection.accept_bi().await?;
 
+        // Create a new doc for this video
+        let doc = self.docs
+            .create()
+            .await
+            .map_err(|e| AcceptError::from_boxed(e.into()))?;
+
+        println!("Created a doc");
+
+        let ticket = doc
+            .share(ShareMode::Write, Default::default())
+            .await
+            .map_err(|e| AcceptError::from_boxed(e.into()))?;
+
+        let id_string = doc.id().to_string();
+
+        println!("Generated a ticket: {}", ticket);
+
         // Copy the remote file to local
         let temp_file_name = format!("{}.mp4", connection.remote_id());
         let mut temp_file = File::create(&temp_file_name).await?;
         tokio::io::copy(&mut recv, &mut temp_file).await?;
 
         // Split the mp4 w. ffmpeg
-        let temp_directory = connection.remote_id().to_string();
-        fs::create_dir(&temp_directory).await?;
+        fs::create_dir(&id_string).await?;
         let args_string = format!(
             "-f segment -segment_time 1 -reset_timestamps 1 -map 0 {}/output_%d.mp4",
-            connection.remote_id()
+            id_string
         );
 
         let mut command = FfmpegCommand::new()
@@ -109,7 +145,7 @@ impl ProtocolHandler for VideoUpload {
         });
 
         // sort the entries by time first
-        let mut entries = fs::read_dir(&temp_directory).await?;
+        let mut entries = fs::read_dir(&id_string).await?;
         let mut files = Vec::new();
 
         while let Some(file) = entries.next_entry().await? {
@@ -122,8 +158,12 @@ impl ProtocolHandler for VideoUpload {
 
         files.sort_by_key(|&(_, time)| time);
 
+        send.write_all(ticket.to_string().as_bytes())
+            .await
+            .map_err(AcceptError::from_err)?;
+        send.finish()?;
+
         // Add each file to iroh
-        let tag = Uuid::new_v4(); // the tag will be a UUID
         let mut file_number = 0;
 
         for file in files {
@@ -135,7 +175,7 @@ impl ProtocolHandler for VideoUpload {
                 .blobs
                 .add_stream(stream)
                 .await
-                .with_named_tag(format!("{}:{}", tag, file_number))
+                .with_named_tag(format!("{}:{}", id_string, file_number))
                 .await
             {
                 eprintln!("Failed to add to store: {}", e)
@@ -145,16 +185,17 @@ impl ProtocolHandler for VideoUpload {
         }
 
         // return the tag and the # of clips
-        println!("UUID tag: {}:{} ", tag, file_number);
+        println!("UUID tag: {}:{} ", id_string, file_number);
 
+        let mut send = connection.open_uni().await?;
         // return the prefix tag to client
-        send.write_all(tag.to_string().as_bytes()).await.unwrap(); // It's just easier using strings. Fight me.
-        send.finish().unwrap();
+        send.write_all(format!("{}:{}", id_string, file_number).as_bytes()).await.unwrap(); // It's just easier using strings. Fight me.
+        send.finish()?;
 
         connection.closed().await;
 
         // clean up
-        fs::remove_dir_all(temp_directory).await?;
+        fs::remove_dir_all(id_string).await?;
         fs::remove_file(&temp_file_name).await?;
 
         Result::Ok(())
@@ -212,3 +253,4 @@ impl ProtocolHandler for Query {
         Result::Ok(())
     }
 }
+
