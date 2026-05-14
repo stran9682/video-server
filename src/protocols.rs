@@ -89,9 +89,9 @@ impl ProtocolHandler for VideoUpload {
         // return the tag and the # of clips
         println!("video tag: {}:{} ", doc_id_string, file_number);
         let mut send = connection.open_uni().await?;
-        send.write_all(format!("{}:{}", doc_id_string, file_number).as_bytes())
+        send.write_all(format!("{}:{}", doc_id_string, file_number-1).as_bytes())
             .await
-            .unwrap(); // It's just easier using strings. Fight me.
+            .unwrap();
         send.finish()?;
 
         connection.closed().await;

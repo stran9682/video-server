@@ -99,9 +99,9 @@ async fn main() -> anyhow::Result<()> {
         .accept(iroh_docs::ALPN, docs.clone())
         .spawn();
 
-    if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
-        eprintln!("Failed to send client video! {}", e)
-    };
+    // if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
+    //     eprintln!("Failed to send client video! {}", e)
+    // };
 
     input.clear();
     println!("Query for tag?");

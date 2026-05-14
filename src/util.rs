@@ -12,6 +12,7 @@ use iroh_docs::{
     protocol::Docs,
     store::Query,
 };
+use serde::{Deserialize, Serialize};
 use tokio::fs::{self};
 
 pub async fn split_video_file(doc_id_string: &str) -> anyhow::Result<Vec<PathBuf>> {
@@ -72,20 +73,30 @@ pub async fn check_permissions(
     namespace_id: &str,
     endpoint_id: &str,
 ) -> anyhow::Result<bool> {
-    let namespace = NamespaceId::from_str(&namespace_id).unwrap();
+    let namespace = NamespaceId::from_str(&namespace_id)?;
     let doc: Doc = docs.open(namespace).await.unwrap().unwrap();
 
+    // we only have one entry per document, so this should be fine.
     if let Some(entry) = doc
         .get_one(Query::single_latest_per_key().key_prefix(namespace_id))
         .await?
     {
-        let bytes = blobs.blobs().get_bytes(entry.content_hash()).await.unwrap();
-        let authorized_users = std::str::from_utf8(&bytes)?;
+        let bytes = blobs.blobs().get_bytes(entry.content_hash()).await?;
 
-        println!("hi {}", authorized_users);
+        // TODO: deserialize the JSON
+        let authorized_users: AuthorizedUsers = serde_json::from_slice(&bytes)?;
 
-        return Ok(authorized_users.contains(endpoint_id));
+        println!("authorized users: {:?}", authorized_users.authorized_users);
+
+        return Ok(authorized_users.authorized_users.contains(&endpoint_id.to_owned()));
     }
 
     Ok(false)
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub struct AuthorizedUsers {
+    file_name: String,
+    authorized_users: Vec<String> 
 }
