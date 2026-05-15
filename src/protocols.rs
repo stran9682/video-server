@@ -1,6 +1,6 @@
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh_blobs::api::Store;
-use iroh_docs::protocol::Docs;
+use iroh_docs::{engine::LiveEvent, protocol::Docs};
 use tokio::fs::{self, File};
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
@@ -50,6 +50,24 @@ impl ProtocolHandler for VideoUpload {
             .await
             .map_err(|e| AcceptError::from_boxed(e.into()))?;
         let doc_id_string = doc.id().to_string();
+
+        // there may need to be this task needed to listen to these events?
+        // but that doesn't explain at all why the console app doesn't need it
+        // very odd.
+        tokio::spawn(async move {
+            let mut events = doc.subscribe().await.unwrap();
+            while let Some(event) = events.next().await {
+                match event.unwrap() {
+                    LiveEvent::InsertRemote { entry, .. } => {
+                        println!("peer inserted {:?}", entry.key());
+                    }
+                    LiveEvent::ContentReady { hash } => {
+                        println!("content {hash} is now available locally");
+                    }
+                    _ => {}
+                }
+            }
+        });
 
         // Copy the sender's file to local,
         // then split it using ffmpeg

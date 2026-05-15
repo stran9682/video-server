@@ -74,17 +74,25 @@ pub async fn check_permissions(
     endpoint_id: &str,
 ) -> anyhow::Result<bool> {
     let namespace = NamespaceId::from_str(&namespace_id)?;
-    let doc: Doc = docs.open(namespace).await.unwrap().unwrap();
+    let doc: Doc = docs.open(namespace).await?.unwrap();
+
+    println!("Document does exist");
 
     // we only have one entry per document, so this should be fine.
     if let Some(entry) = doc
-        .get_one(Query::single_latest_per_key().key_prefix(namespace_id))
+        .get_one(Query::single_latest_per_key().key_exact("accesslist"))
         .await?
     {
-        let bytes = blobs.blobs().get_bytes(entry.content_hash()).await?;
+        println!("Found an entry inside document");
+
+        let bytes = blobs.get_bytes(entry.content_hash()).await.inspect_err(|e| eprintln!("{e}"))?;
+
+        println!("Bytes for entry does exist");
 
         // TODO: deserialize the JSON
         let authorized_users: AuthorizedUsers = serde_json::from_slice(&bytes)?;
+
+        println!("Was in JSON format");
 
         println!("authorized users: {:?}", authorized_users.authorized_users);
 
@@ -97,6 +105,5 @@ pub async fn check_permissions(
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub struct AuthorizedUsers {
-    file_name: String,
-    authorized_users: Vec<String> 
+    pub authorized_users: Vec<String> 
 }

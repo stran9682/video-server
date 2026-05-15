@@ -4,6 +4,7 @@ use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets, protocol::Router}
 use iroh_blobs::{BlobsProtocol, store::mem::MemStore};
 use iroh_docs::{DocTicket, protocol::Docs};
 use iroh_gossip::Gossip;
+use server::util::AuthorizedUsers;
 use tokio::fs::File;
 
 const ALPN: &[u8] = b"fun";
@@ -37,7 +38,13 @@ async fn upload(
 
     let doc = docs.import(ticket).await?;
     let author = docs.author_create().await?; // TODO adjust this
-    doc.set_bytes(author, tag, client_endpoint.id().to_string())
+
+    let entry = AuthorizedUsers {
+        authorized_users: vec![client_endpoint.id().to_string()],
+    };
+    let entry = serde_json::to_vec(&entry)?;
+
+    doc.set_bytes(author, "accesslist", entry)
         .await?;
 
     conn.close(0u32.into(), b"all done!");
