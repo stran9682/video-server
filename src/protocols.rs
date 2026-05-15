@@ -51,7 +51,7 @@ impl ProtocolHandler for VideoUpload {
             .map_err(|e| AcceptError::from_boxed(e.into()))?;
         let doc_id_string = doc.id().to_string();
 
-        // there may need to be this task needed to listen to these events?
+        // this task may be needed to listen to actively update the doc?
         // but that doesn't explain at all why the console app doesn't need it
         // very odd.
         tokio::spawn(async move {

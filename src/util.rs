@@ -105,5 +105,6 @@ pub async fn check_permissions(
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub struct AuthorizedUsers {
+    pub namespace_id: String,
     pub authorized_users: Vec<String> 
 }

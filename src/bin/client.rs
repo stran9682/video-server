@@ -40,6 +40,7 @@ async fn upload(
     let author = docs.author_create().await?; // TODO adjust this
 
     let entry = AuthorizedUsers {
+        namespace_id: doc.id().to_string(),
         authorized_users: vec![client_endpoint.id().to_string()],
     };
     let entry = serde_json::to_vec(&entry)?;
@@ -106,21 +107,25 @@ async fn main() -> anyhow::Result<()> {
         .accept(iroh_docs::ALPN, docs.clone())
         .spawn();
 
-    // if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
-    //     eprintln!("Failed to send client video! {}", e)
-    // };
+    println!("Our endpoint id: {}", client_endpoint.id());
 
-    input.clear();
-    println!("Query for tag?");
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
-
-    if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
-        eprintln!("Failed to query server! {}", e)
+    if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
+        eprintln!("Failed to send client video! {}", e)
     };
 
-    tokio::signal::ctrl_c().await?;
-    router.shutdown().await?;
-    Ok(())
+    loop {
+        input.clear();
+        println!("Query for tag?");
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read line");
+
+        if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
+            eprintln!("Failed to query server! {}", e)
+        };      
+    }
+
+    // tokio::signal::ctrl_c().await?;
+    // router.shutdown().await?;
+    // Ok(())
 }
