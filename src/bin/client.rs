@@ -1,9 +1,10 @@
 use std::{io, str::FromStr};
 
 use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets, protocol::Router};
-use iroh_blobs::{BlobsProtocol, store::mem::MemStore};
-use iroh_docs::{DocTicket, protocol::Docs};
+use iroh_blobs::{BlobsProtocol, store::{fs::FsStore, mem::MemStore}};
+use iroh_docs::{DocTicket, engine::LiveEvent, protocol::Docs};
 use iroh_gossip::Gossip;
+use n0_future::StreamExt;
 use server::util::AuthorizedUsers;
 use tokio::fs::File;
 
@@ -82,15 +83,53 @@ async fn query(
     Ok(())
 }
 
+pub async fn add_ticket(docs: &Docs, doc_ticket: &str, blobs: &MemStore) -> anyhow::Result<()> {
+
+    let doc_ticket = DocTicket::from_str(doc_ticket.trim())?;
+    let doc = docs.import(doc_ticket).await?;
+    let blobs = blobs.clone();
+
+    tokio::spawn(async move {
+        let mut events = doc.subscribe().await.unwrap();
+        while let Some(event) = events.next().await {
+            match event.unwrap() {
+                LiveEvent::InsertRemote { entry, .. } => {
+                    println!("peer inserted {:?}", entry.key());
+                }
+                LiveEvent::ContentReady { hash } => {
+                    println!("content {hash} is now available locally");
+
+                    if let Ok(content) = blobs.get_bytes(hash).await {
+                        let authorized_users: AuthorizedUsers =  serde_json::from_slice(&content).unwrap();
+
+                        println!("Authorized users now: {:?}", authorized_users.authorized_users);
+                    };
+                }
+                LiveEvent::PendingContentReady => {
+                    println!("Pending content ready");
+                }
+
+                LiveEvent::SyncFinished(event) => {
+                    print!("Sync finished: {:?}", event);
+                }
+
+                _ => {}
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("Enter endpoint: ");
     let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
+    // println!("Enter endpoint: ");
+    // io::stdin()
+    //     .read_line(&mut input)
+    //     .expect("Failed to read line");
 
-    let server_id = PublicKey::from_str(input.trim())?;
+    // let server_id = PublicKey::from_str(input.trim())?;
 
     // stuff for docs
     let client_endpoint = Endpoint::bind(presets::N0).await?;
@@ -109,20 +148,23 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Our endpoint id: {}", client_endpoint.id());
 
-    if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
-        eprintln!("Failed to send client video! {}", e)
-    };
+    // if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
+    //     eprintln!("Failed to send client video! {}", e)
+    // };
 
     loop {
         input.clear();
-        println!("Query for tag?");
+        println!("Receive ticket");
         io::stdin()
             .read_line(&mut input)
             .expect("Failed to read line");
 
-        if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
-            eprintln!("Failed to query server! {}", e)
-        };      
+        // if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
+        //     eprintln!("Failed to query server! {}", e)
+        // };     
+        if let Err(e) = add_ticket(&docs, &input, &blobs).await {
+            eprintln!("Failed to import doc: {}", e)
+        }
     }
 
     // tokio::signal::ctrl_c().await?;
