@@ -1,11 +1,16 @@
+use std::time::Instant;
+
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh_blobs::api::Store;
 use iroh_docs::{engine::LiveEvent, protocol::Docs};
-use tokio::fs::{self, File};
+use tokio::{
+    fs::{self, File, OpenOptions},
+    io::AsyncWriteExt,
+};
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
 
-use crate::util::{check_permissions, create_doc, split_video_file};
+use crate::util::{AuthorizedUsers, check_permissions, create_doc, split_video_file};
 
 #[derive(Debug, Clone)]
 pub struct VideoUpload {
@@ -43,6 +48,8 @@ impl ProtocolHandler for VideoUpload {
     ) -> Result<(), iroh::protocol::AcceptError> {
         let (mut send, mut recv) = connection.accept_bi().await?;
 
+        let time_start = Instant::now();
+
         // Create a iroh-doc.
         // This will store who's allowed to view this video.
         // Everything will be indentified using the doc id
@@ -54,6 +61,9 @@ impl ProtocolHandler for VideoUpload {
         // this task may be needed to listen to actively update the doc?
         // but that doesn't explain at all why the console app doesn't need it
         // very odd.
+        let doc_id = doc_id_string.clone();
+        let blobs = self.blobs.clone();
+        let time_start = time_start.clone();
         tokio::spawn(async move {
             let mut events = doc.subscribe().await.unwrap();
             while let Some(event) = events.next().await {
@@ -62,8 +72,39 @@ impl ProtocolHandler for VideoUpload {
                         println!("peer inserted {:?}", entry.key());
                     }
                     LiveEvent::ContentReady { hash } => {
+                        // TODO: Record time content becomes ready.
+                        let time_end = time_start.elapsed().as_nanos();
+
                         println!("content {hash} is now available locally");
+
+                        if let Ok(content) = blobs.get_bytes(hash).await {
+                            let authorized_users: AuthorizedUsers =
+                                serde_json::from_slice(&content).unwrap();
+
+                            println!(
+                                "Authorized users now: {:?}",
+                                authorized_users.authorized_users
+                            );
+                        };
+
+                        let mut file = OpenOptions::new()
+                            .write(true)
+                            .append(true)
+                            .create(true)
+                            .open("update_time.csv")
+                            .await.unwrap();
+
+                        file.write_all(format!("{},{}\n", doc_id, time_end).as_bytes())
+                            .await.unwrap();
                     }
+                    LiveEvent::PendingContentReady => {
+                        println!("Pending content ready");
+                    }
+
+                    LiveEvent::SyncFinished(event) => {
+                        print!("Sync finished: {:?}", event);
+                    }
+
                     _ => {}
                 }
             }
@@ -83,6 +124,8 @@ impl ProtocolHandler for VideoUpload {
             .await
             .map_err(AcceptError::from_err)?;
         send.finish()?;
+
+        let time_sent = time_start.elapsed().as_nanos();
 
         // Add each file to iroh-blobs
         let mut file_number = 0;
@@ -107,7 +150,7 @@ impl ProtocolHandler for VideoUpload {
         // return the tag and the # of clips
         println!("video tag: {}:{} ", doc_id_string, file_number);
         let mut send = connection.open_uni().await?;
-        send.write_all(format!("{}:{}", doc_id_string, file_number-1).as_bytes())
+        send.write_all(format!("{}:{}", doc_id_string, file_number - 1).as_bytes())
             .await
             .unwrap();
         send.finish()?;
@@ -115,8 +158,18 @@ impl ProtocolHandler for VideoUpload {
         connection.closed().await;
 
         // clean up
-        fs::remove_dir_all(doc_id_string).await?;
+        fs::remove_dir_all(&doc_id_string).await?;
         fs::remove_file(&temp_file_name).await?;
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .create(true)
+            .open("send_time.csv")
+            .await?;
+
+        file.write_all(format!("{},{}\n", doc_id_string, time_sent).as_bytes())
+            .await?;
 
         Result::Ok(())
     }

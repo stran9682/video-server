@@ -85,7 +85,10 @@ pub async fn check_permissions(
     {
         println!("Found an entry inside document");
 
-        let bytes = blobs.get_bytes(entry.content_hash()).await.inspect_err(|e| eprintln!("{e}"))?;
+        let bytes = blobs
+            .get_bytes(entry.content_hash())
+            .await
+            .inspect_err(|e| eprintln!("{e}"))?;
 
         println!("Bytes for entry does exist");
 
@@ -96,7 +99,9 @@ pub async fn check_permissions(
 
         println!("authorized users: {:?}", authorized_users.authorized_users);
 
-        return Ok(authorized_users.authorized_users.contains(&endpoint_id.to_owned()));
+        return Ok(authorized_users
+            .authorized_users
+            .contains(&endpoint_id.to_owned()));
     }
 
     Ok(false)
@@ -106,5 +111,5 @@ pub async fn check_permissions(
 #[serde(tag = "type")]
 pub struct AuthorizedUsers {
     pub namespace_id: String,
-    pub authorized_users: Vec<String> 
+    pub authorized_users: Vec<String>,
 }
