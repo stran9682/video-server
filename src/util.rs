@@ -1,10 +1,10 @@
 use std::{path::PathBuf, str::FromStr, time::SystemTime};
 
-use anyhow::Ok;
 use ffmpeg_sidecar::{
     command::FfmpegCommand,
     event::{FfmpegEvent, LogLevel},
 };
+use iroh::SecretKey;
 use iroh_blobs::api::Store;
 use iroh_docs::{
     DocTicket, NamespaceId,
@@ -13,7 +13,32 @@ use iroh_docs::{
     store::Query,
 };
 use serde::{Deserialize, Serialize};
-use tokio::fs::{self};
+use tokio::{
+    fs::{self},
+    io,
+};
+
+const KEY_PATH: &str = "key.txt";
+
+pub async fn get_key() -> io::Result<SecretKey> {
+    if tokio::fs::try_exists(KEY_PATH).await? {
+        let bytes = tokio::fs::read(KEY_PATH).await?;
+        match bytes[..32].try_into() {
+            Ok(bytes) => Ok(iroh::SecretKey::from_bytes(bytes)),
+            Err(_) => store_key().await,
+        }
+    } else {
+        store_key().await
+    }
+}
+
+async fn store_key() -> io::Result<SecretKey> {
+    let key = SecretKey::generate();
+
+    tokio::fs::write(KEY_PATH, key.to_bytes()).await?;
+
+    Ok(key)
+}
 
 pub async fn split_video_file(doc_id_string: &str) -> anyhow::Result<Vec<PathBuf>> {
     // Split the mp4 w. ffmpeg
@@ -85,7 +110,10 @@ pub async fn check_permissions(
     {
         println!("Found an entry inside document");
 
-        let bytes = blobs.get_bytes(entry.content_hash()).await.inspect_err(|e| eprintln!("{e}"))?;
+        let bytes = blobs
+            .get_bytes(entry.content_hash())
+            .await
+            .inspect_err(|e| eprintln!("{e}"))?;
 
         println!("Bytes for entry does exist");
 
@@ -96,7 +124,9 @@ pub async fn check_permissions(
 
         println!("authorized users: {:?}", authorized_users.authorized_users);
 
-        return Ok(authorized_users.authorized_users.contains(&endpoint_id.to_owned()));
+        return Ok(authorized_users
+            .authorized_users
+            .contains(&endpoint_id.to_owned()));
     }
 
     Ok(false)
@@ -106,5 +136,5 @@ pub async fn check_permissions(
 #[serde(tag = "type")]
 pub struct AuthorizedUsers {
     pub namespace_id: String,
-    pub authorized_users: Vec<String> 
+    pub authorized_users: Vec<String>,
 }

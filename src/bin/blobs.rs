@@ -1,5 +1,7 @@
-
-use std::{io::{self, Error}, str::FromStr};
+use std::{
+    io::{self, Error},
+    str::FromStr,
+};
 
 use anyhow::Ok;
 use ffmpeg_sidecar::command::ffmpeg_is_installed;
@@ -8,7 +10,10 @@ use iroh_blobs::{BlobsProtocol, store::fs::FsStore};
 use iroh_docs::{DocTicket, api::protocol::ShareMode, protocol::Docs};
 use iroh_gossip::Gossip;
 use n0_future::StreamExt;
-use server::protocols::{QueryProtocol, VideoUpload};
+use server::{
+    protocols::{QueryProtocol, VideoUpload},
+    util::get_key,
+};
 
 const ALPN: &[u8] = b"fun";
 
@@ -22,7 +27,13 @@ async fn main() -> anyhow::Result<()> {
 
     let store = FsStore::load("./").await?;
 
-    let server_endpoint = Endpoint::bind(presets::N0).await?;
+    let secret_key = get_key().await?;
+
+    let server_endpoint = iroh::Endpoint::builder(presets::N0)
+        .secret_key(secret_key)
+        .bind()
+        .await?;
+
     server_endpoint.online().await;
 
     // stuff for docs

@@ -1,7 +1,10 @@
 use std::{io, str::FromStr};
 
 use iroh::{Endpoint, EndpointId, PublicKey, endpoint::presets, protocol::Router};
-use iroh_blobs::{BlobsProtocol, store::{fs::FsStore, mem::MemStore}};
+use iroh_blobs::{
+    BlobsProtocol,
+    store::{fs::FsStore, mem::MemStore},
+};
 use iroh_docs::{DocTicket, engine::LiveEvent, protocol::Docs};
 use iroh_gossip::Gossip;
 use n0_future::StreamExt;
@@ -46,8 +49,7 @@ async fn upload(
     };
     let entry = serde_json::to_vec(&entry)?;
 
-    doc.set_bytes(author, "accesslist", entry)
-        .await?;
+    doc.set_bytes(author, "accesslist", entry).await?;
 
     conn.close(0u32.into(), b"all done!");
 
@@ -84,7 +86,6 @@ async fn query(
 }
 
 pub async fn add_ticket(docs: &Docs, doc_ticket: &str, blobs: &MemStore) -> anyhow::Result<()> {
-
     let doc_ticket = DocTicket::from_str(doc_ticket.trim())?;
     let doc = docs.import(doc_ticket).await?;
     let blobs = blobs.clone();
@@ -100,9 +101,13 @@ pub async fn add_ticket(docs: &Docs, doc_ticket: &str, blobs: &MemStore) -> anyh
                     println!("content {hash} is now available locally");
 
                     if let Ok(content) = blobs.get_bytes(hash).await {
-                        let authorized_users: AuthorizedUsers =  serde_json::from_slice(&content).unwrap();
+                        let authorized_users: AuthorizedUsers =
+                            serde_json::from_slice(&content).unwrap();
 
-                        println!("Authorized users now: {:?}", authorized_users.authorized_users);
+                        println!(
+                            "Authorized users now: {:?}",
+                            authorized_users.authorized_users
+                        );
                     };
                 }
                 LiveEvent::PendingContentReady => {
@@ -148,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Our endpoint id: {}", client_endpoint.id());
 
-    // if let Err(e) = upload(&client_endpoint, &server_id, docs).await {
+    // if let Err(e) = upload(&client_endpoint, &server_id, docs.clone()).await {
     //     eprintln!("Failed to send client video! {}", e)
     // };
 
@@ -161,7 +166,7 @@ async fn main() -> anyhow::Result<()> {
 
         // if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
         //     eprintln!("Failed to query server! {}", e)
-        // };     
+        // };
         if let Err(e) = add_ticket(&docs, &input, &blobs).await {
             eprintln!("Failed to import doc: {}", e)
         }
