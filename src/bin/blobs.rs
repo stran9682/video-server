@@ -1,10 +1,13 @@
 
+use std::{io::{self, Error}, str::FromStr};
+
 use anyhow::Ok;
 use ffmpeg_sidecar::command::ffmpeg_is_installed;
 use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use iroh_blobs::{BlobsProtocol, store::fs::FsStore};
-use iroh_docs::protocol::Docs;
+use iroh_docs::{DocTicket, api::protocol::ShareMode, protocol::Docs};
 use iroh_gossip::Gossip;
+use n0_future::StreamExt;
 use server::protocols::{QueryProtocol, VideoUpload};
 
 const ALPN: &[u8] = b"fun";
@@ -28,6 +31,24 @@ async fn main() -> anyhow::Result<()> {
     let docs = Docs::persistent("./blobs".into())
         .spawn(server_endpoint.clone(), (*blobs).clone(), gossip.clone())
         .await?;
+
+    let mut res = docs.list().await?;
+    while let Some(entry) = res.next().await {
+        let (namespace_id, _) = entry?;
+
+        let doc = docs.open(namespace_id).await?.ok_or(Error::new(
+            io::ErrorKind::InvalidFilename,
+            "Couldn't open document",
+        ))?;
+
+        let ticket = doc.share(ShareMode::Write, Default::default()).await?;
+        let ticket_str = ticket.to_string();
+
+        // no way you can do this.
+        // bahah using your document to rejoin
+        println!("Doc ticket on startup: {}", ticket.to_string());
+        docs.import(DocTicket::from_str(&ticket_str)?).await?;
+    }
 
     // Our own query stuff
     let proto = VideoUpload::new(&store, &docs);
