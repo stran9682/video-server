@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh_blobs::api::Store;
-use iroh_docs::{engine::LiveEvent, protocol::Docs};
+use iroh_docs::{ContentStatus, engine::LiveEvent, protocol::Docs};
 use tokio::{
     fs::{self, File, OpenOptions},
     io::AsyncWriteExt,
@@ -68,7 +68,7 @@ impl ProtocolHandler for VideoUpload {
             let mut events = doc.subscribe().await.unwrap();
             while let Some(event) = events.next().await {
                 match event.unwrap() {
-                    LiveEvent::InsertRemote { entry, .. } => {
+                    LiveEvent::InsertRemote { entry, content_status: ContentStatus::Complete, .. } => {
                         println!("peer inserted {:?}", entry.key());
                     }
                     LiveEvent::ContentReady { hash } => {
@@ -96,15 +96,7 @@ impl ProtocolHandler for VideoUpload {
 
                         file.write_all(format!("{},{}\n", doc_id, time_end).as_bytes())
                             .await.unwrap();
-                    }
-                    LiveEvent::PendingContentReady => {
-                        println!("Pending content ready");
-                    }
-
-                    LiveEvent::SyncFinished(event) => {
-                        print!("Sync finished: {:?}", event);
-                    }
-
+                    } 
                     _ => {}
                 }
             }
