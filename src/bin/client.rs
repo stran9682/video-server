@@ -129,12 +129,12 @@ pub async fn add_ticket(docs: &Docs, doc_ticket: &str, blobs: &MemStore) -> anyh
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut input = String::new();
-    // println!("Enter endpoint: ");
-    // io::stdin()
-    //     .read_line(&mut input)
-    //     .expect("Failed to read line");
+    println!("Enter endpoint: ");
+    io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
 
-    // let server_id = PublicKey::from_str(input.trim())?;
+    let server_id = PublicKey::from_str(input.trim())?;
 
     // stuff for docs
     let client_endpoint = Endpoint::bind(presets::N0).await?;
@@ -153,26 +153,28 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Our endpoint id: {}", client_endpoint.id());
 
-    // if let Err(e) = upload(&client_endpoint, &server_id, docs.clone()).await {
-    //     eprintln!("Failed to send client video! {}", e)
-    // };
-
-    loop {
-        input.clear();
-        println!("Receive ticket");
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read line");
-
-        // if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
-        //     eprintln!("Failed to query server! {}", e)
-        // };
-        if let Err(e) = add_ticket(&docs, &input, &blobs).await {
-            eprintln!("Failed to import doc: {}", e)
-        }
+    for _ in 0..100 {
+        if let Err(e) = upload(&client_endpoint, &server_id, docs.clone()).await {
+            eprintln!("Failed to send client video! {}", e)
+        };
     }
 
-    // tokio::signal::ctrl_c().await?;
-    // router.shutdown().await?;
-    // Ok(())
+    // loop {
+    //     input.clear();
+    //     println!("Query: ");
+    //     io::stdin()
+    //         .read_line(&mut input)
+    //         .expect("Failed to read line");
+
+    //     if let Err(e) = query(&client_endpoint, &server_id, input.trim()).await {
+    //         eprintln!("Failed to query server! {}", e)
+    //     };
+    //     if let Err(e) = add_ticket(&docs, &input, &blobs).await {
+    //         eprintln!("Failed to import doc: {}", e)
+    //     }
+    // }
+
+    tokio::signal::ctrl_c().await?;
+    router.shutdown().await?;
+    Ok(())
 }
